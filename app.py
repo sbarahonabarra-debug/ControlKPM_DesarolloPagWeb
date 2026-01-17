@@ -10,17 +10,24 @@ import streamlit.components.v1 as components
 # =========================
 # CONFIG + PERSISTENCIA
 # =========================
-st.set_page_config(page_title="Cronograma Plan 4 (E-Commerce)", layout="wide")
+st.set_page_config(page_title="Cronograma Plan 4 (E-Commerce + Marca + SEO)", layout="wide")
 
 STATE_FILE = Path("cronograma_plan4_state.json")
 
 STATUS_OPTIONS = ["Pendiente", "En proceso", "Finalizado", "Atrasado"]
 
+# -------------------------
+# TAREAS (3 carriles):
+# - Web (cadena principal)
+# - Marca (paralelo, por reuniones)
+# - SEO (paralelo, depende de algunos hitos web)
+# -------------------------
 TASKS_DEFAULT = [
     ("Inicio", "t0", "T0 Kickoff + Brief", "", 1),
 
-    ("Base técnica", "t1", "T1 Insumos y accesos (cliente)", "t0", 2),
-    ("Base técnica", "t2", "T2 Setup plataforma + SSL base", "t1", 2),
+    # --- WEB (Anexo A / B)
+    ("Base técnica", "t1a", "T1A Accesos mínimos (cliente)", "t0", 1),
+    ("Base técnica", "t2", "T2 Setup plataforma + SSL base", "t1a", 2),
     ("Base técnica", "t3", "T3 Arquitectura de páginas + navegación", "t2", 2),
 
     ("Diseño y tienda", "t4", "T4 Diseño UI (home + tienda/producto)", "t3", 3),
@@ -37,6 +44,21 @@ TASKS_DEFAULT = [
     ("Soporte + salida", "t12", "T12 Agente conversacional AI + FAQ base", "t11", 2),
     ("Soporte + salida", "t13", "T13 Capacitación + guía breve", "t12", 1),
     ("Soporte + salida", "t14", "T14 Publicación (Go-Live) + verificación", "t13", 1),
+
+    # --- MARCA (asesoría negocio + identidad, paralelo)
+    ("Marca", "m1", "M1 Diagnóstico + propuesta de valor", "t0", 1),
+    ("Marca", "m2", "M2 Arquitectura comercial (categorías/tono/naming)", "m1", 1),
+    ("Marca", "m3", "M3 Identidad V0 (provisional para avanzar UI)", "m2", 1),
+    ("Marca", "m4", "M4 Identidad V1 final (logo+paleta+tipografías)", "m3", 2),
+
+    # (opcional) si quieres trackear “insumos/identidad” sin bloquear el desarrollo web
+    ("Marca", "t1b", "T1B Insumos/identidad (en reuniones)", "t0", 2),
+
+    # --- SEO (Anexo C, paralelo)
+    ("SEO", "s1", "S1 SEO técnico base (tracking + sitemap/robots)", "t2", 1),
+    ("SEO", "s2", "S2 Estructura SEO (keywords + contenidos)", "t3", 1),
+    ("SEO", "s3", "S3 On-page (Home + categoría + producto)", "t4", 2),
+    ("SEO", "s4", "S4 Post Go-Live (indexación + verificación)", "t14", 1),
 ]
 
 
@@ -48,6 +70,58 @@ def default_df() -> pd.DataFrame:
     df["Estado"] = "Pendiente"
     df["Desviación (días hábiles)"] = 0  # + atraso, - adelanto
     return df
+
+
+def migrate_df(loaded_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Migra un estado guardado (que puede venir con tareas antiguas)
+    hacia el set actual (TASKS_DEFAULT), manteniendo:
+    - Estado
+    - Desviación
+    - Duración (si el usuario la ajustó)
+    y preservando tareas extra del usuario (si existieran).
+    """
+    base = default_df()
+
+    # Normaliza columnas esperadas
+    if "Desviación (días hábiles)" not in loaded_df.columns:
+        loaded_df = loaded_df.copy()
+        loaded_df["Desviación (días hábiles)"] = 0
+
+    # Índices por ID
+    loaded_by_id = {str(r["ID"]): r for _, r in loaded_df.iterrows()}
+    base_ids = set(base["ID"].astype(str).tolist())
+
+    # Copia estado / duración / desviación para IDs que existan en ambos
+    for i in range(len(base)):
+        tid = str(base.loc[i, "ID"])
+        if tid in loaded_by_id:
+            r = loaded_by_id[tid]
+            # conservar ajustes del usuario
+            if "Estado" in r:
+                base.loc[i, "Estado"] = str(r["Estado"])
+            if "Desviación (días hábiles)" in r:
+                try:
+                    base.loc[i, "Desviación (días hábiles)"] = int(r["Desviación (días hábiles)"])
+                except Exception:
+                    base.loc[i, "Desviación (días hábiles)"] = 0
+            if "Duración (días hábiles)" in r:
+                try:
+                    base.loc[i, "Duración (días hábiles)"] = int(r["Duración (días hábiles)"])
+                except Exception:
+                    pass
+
+    # Si el usuario tenía tareas “custom” que no están en el base, las anexamos
+    extras = loaded_df[~loaded_df["ID"].astype(str).isin(base_ids)].copy()
+    if not extras.empty:
+        needed_cols = ["Fase", "ID", "Tarea", "Depende_de", "Duración (días hábiles)", "Estado", "Desviación (días hábiles)"]
+        for c in needed_cols:
+            if c not in extras.columns:
+                extras[c] = "" if c in ["Fase", "ID", "Tarea", "Depende_de", "Estado"] else 0
+        extras = extras[needed_cols]
+        base = pd.concat([base, extras], ignore_index=True)
+
+    return base
 
 
 def load_state():
@@ -67,6 +141,10 @@ def load_state():
 
         start_iso = raw.get("start_date", date.today().isoformat())
         excludes_weekends = bool(raw.get("excludes_weekends", True))
+
+        # MIGRACIÓN a estructura vigente
+        df = migrate_df(df)
+
         return df, date.fromisoformat(start_iso), excludes_weekends
     except Exception:
         return None
@@ -243,11 +321,15 @@ def build_schedule(df_in: pd.DataFrame, kickoff: date, exclude_weekends: bool) -
             if dep:
                 if dep in unresolved:
                     continue  # aún no calculamos el dep
-                dep_idx = by_id[dep]
-                dep_end = df.loc[dep_idx, "Fin"]
-                if pd.isna(dep_end):
-                    continue
-                start = next_day_after(dep_end.date(), exclude_weekends)
+                dep_idx = by_id.get(dep)
+                if dep_idx is None:
+                    # dependencia no existe -> tratar como sin dependencia
+                    start = next_business_day(kickoff, exclude_weekends)
+                else:
+                    dep_end = df.loc[dep_idx, "Fin"]
+                    if pd.isna(dep_end):
+                        continue
+                    start = next_day_after(dep_end.date(), exclude_weekends)
             else:
                 start = next_business_day(kickoff, exclude_weekends)
 
@@ -268,7 +350,7 @@ def build_schedule(df_in: pd.DataFrame, kickoff: date, exclude_weekends: bool) -
 # =========================
 # UI
 # =========================
-st.title("ANEXO B — Cronograma de Implementación (Carta Gantt)")
+st.title("Cronograma Plan 4 — Web + Marca + SEO (Carta Gantt)")
 st.caption("Desviación en días hábiles: +N atrasa y propaga el atraso; -N adelanta y propaga el adelanto.")
 
 t1, t2, t3 = st.columns([1.2, 1.2, 2.6])
@@ -351,10 +433,11 @@ with c4:
         else:
             st.warning(msg)
 
-info_cols = st.columns(3)
+info_cols = st.columns(4)
 info_cols[0].metric("Estado actual", str(picked_row["Estado"]))
-info_cols[1].metric("Depende de", dep if dep else "—")
-info_cols[2].metric("Estado dependencia", dep_status if dep else "—")
+info_cols[1].metric("Fase", str(picked_row["Fase"]))
+info_cols[2].metric("Depende de", dep if dep else "—")
+info_cols[3].metric("Estado dependencia", dep_status if dep else "—")
 
 st.divider()
 
@@ -417,9 +500,9 @@ m3.caption("El fin se recalcula con Duración + Desviación por cada hito, y se 
 
 with st.expander("Ver tabla con fechas calculadas"):
     show = schedule_df[[
-        "Fase","ID","Tarea","Depende_de","Estado",
-        "Duración (días hábiles)","Desviación (días hábiles)","Duración efectiva (días hábiles)",
-        "Inicio","Fin"
+        "Fase", "ID", "Tarea", "Depende_de", "Estado",
+        "Duración (días hábiles)", "Desviación (días hábiles)", "Duración efectiva (días hábiles)",
+        "Inicio", "Fin"
     ]].copy()
     show["Inicio"] = show["Inicio"].dt.date
     show["Fin"] = show["Fin"].dt.date
@@ -439,12 +522,9 @@ def status_flag(status: str) -> str:
 
 
 def build_mermaid(df_in: pd.DataFrame, kickoff_iso: str, exclude_weekends: bool) -> str:
-    """
-    Mermaid propaga cambios usando duración efectiva (base + desviación).
-    """
     lines = []
     lines.append("gantt")
-    lines.append("    title Cronograma Plan 4 (E-Commerce)")
+    lines.append("    title Cronograma Plan 4 (Web + Marca + SEO)")
     lines.append("    dateFormat  YYYY-MM-DD")
     lines.append("    axisFormat  %d-%m")
     if exclude_weekends:
