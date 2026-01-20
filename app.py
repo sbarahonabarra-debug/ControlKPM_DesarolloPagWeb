@@ -17,27 +17,114 @@ STATE_FILE = Path("cronograma_plan4_state.json")
 STATUS_OPTIONS = ["Pendiente", "En proceso", "Finalizado", "Atrasado"]
 
 TASKS_DEFAULT = [
+    # =========================
+    # INICIO
+    # =========================
     ("Inicio", "t0", "T0 Kickoff + Brief", "", 1),
 
+    # =========================
+    # CARRIL A: WEB (TU LISTA)
+    # =========================
     ("Base técnica", "t1", "T1 Insumos y accesos (cliente)", "t0", 2),
     ("Base técnica", "t2", "T2 Setup plataforma + SSL base", "t1", 2),
-    ("Base técnica", "t3", "T3 Arquitectura de páginas + navegación", "t2", 2),
 
-    ("Diseño y tienda", "t4", "T4 Diseño UI (home + tienda/producto)", "t3", 3),
-    ("Diseño y tienda", "t5", "T5 Catálogo (categorías/atributos/stock)", "t4", 2),
+    # =========================
+    # CARRIL B: MARCA (PARALELO TEMPRANO)
+    # (estos corren mientras haces t1–t2)
+    # =========================
+    ("Marca — Estrategia", "b1", "B1 Recolección de info marca (inputs + referencias)", "t0", 1),
+    ("Marca — Estrategia", "b2", "B2 Propuesta de valor + posicionamiento + tono + pilares", "b1", 2),
+    ("Marca — Estrategia", "b3", "B3 Buyer persona + benchmark + canales", "b2", 1),
+
+    # =========================
+    # GATE 1 (amarrar antes de arquitectura)
+    # Se agenda al cierre de base técnica: asumimos b1–b3 ya listos para ese día
+    # =========================
+    ("Gates", "g1", "G1 CIERRE: tono + PV + categorías v1 (listo para sitemap)", "t2", 1),
+
+    # =========================
+    # WEB: arquitectura
+    # =========================
+    ("Base técnica", "t3", "T3 Arquitectura de páginas + navegación", "g1", 2),
+
+    # =========================
+    # MARCA: identidad (corre en paralelo a t3)
+    # =========================
+    ("Marca — Identidad", "b4", "B4 Identidad visual v1 (logo/paleta/tipografías)", "g1", 2),
+
+    # =========================
+    # GATE 2 (bloquea el UI)
+    # Se agenda al terminar t3: asumimos b4 ya listo para este día
+    # =========================
+    ("Gates", "g2", "G2 CIERRE: mini manual v1 (UI listo para diseñar)", "t3", 1),
+
+    # =========================
+    # WEB: diseño + tienda
+    # =========================
+    ("Diseño y tienda", "t4", "T4 Diseño UI (home + tienda/producto)", "g2", 3),
+
+    # =========================
+    # MARCA: arquitectura comercial (corre en paralelo a t4)
+    # =========================
+    ("Marca — Comercial", "b5", "B5 Arquitectura comercial (mix, categorías, naming, pricing)", "g2", 2),
+    ("Marca — Comercial", "b6", "B6 Reglas upsell/cross-sell + bundles (v1)", "b5", 1),
+
+    # =========================
+    # GATE 3 (bloquea catálogo/checkout)
+    # Se agenda al terminar t4: asumimos b5–b6 ya listos para este día
+    # =========================
+    ("Gates", "g3", "G3 CIERRE: catálogo v1 + upsell/cross-sell (para plantillas)", "t4", 1),
+
+    ("Diseño y tienda", "t5", "T5 Catálogo (categorías/atributos/stock)", "g3", 2),
     ("Diseño y tienda", "t6", "T6 Carrito + Checkout (flujo completo)", "t5", 2),
 
+    # =========================
+    # WEB: integraciones
+    # =========================
     ("Integraciones", "t7", "T7 Pagos (Webpay y/o Mercado Pago)", "t6", 2),
     ("Integraciones", "t8", "T8 Envíos (métodos y reglas)", "t7", 1),
-    ("Integraciones", "t9", "T9 Correos transaccionales", "t8", 1),
 
+    # =========================
+    # MARCA: copy base (corre en paralelo a pagos/envíos)
+    # =========================
+    ("Marca — Copy", "b7", "B7 Copy base (About, tagline, soporte, tono en mensajes)", "g3", 2),
+
+    # =========================
+    # GATE 4 (bloquea emails transaccionales)
+    # Se agenda al terminar envíos: asumimos b7 ya listo para este día
+    # =========================
+    ("Gates", "g4", "G4 CIERRE: copy base aprobado (emails + UX ready)", "t8", 1),
+
+    ("Integraciones", "t9", "T9 Correos transaccionales", "g4", 1),
+
+    # =========================
+    # WEB: contenido + QA
+    # =========================
     ("Contenido + QA", "t10", "T10 Carga inicial productos (hasta 15)", "t9", 2),
     ("Contenido + QA", "t11", "T11 QA funcional + correcciones", "t10", 2),
 
+    # =========================
+    # WEB: soporte + salida
+    # =========================
     ("Soporte + salida", "t12", "T12 Agente conversacional AI + FAQ base", "t11", 2),
+
+    # =========================
+    # MARCA: checklist + kit (corre mientras haces AI/FAQ)
+    # =========================
+    ("Marca — Implementación", "b8", "B8 Checklist de aplicación (web/RRSS/emails/consistencia)", "g4", 1),
+    ("Marca — Implementación", "b9", "B9 Kit de marca + templates (RRSS/headers/emails)", "b8", 1),
+
     ("Soporte + salida", "t13", "T13 Capacitación + guía breve", "t12", 1),
-    ("Soporte + salida", "t14", "T14 Publicación (Go-Live) + verificación", "t13", 1),
+
+    # =========================
+    # GATE 5 (bloquea go-live)
+    # Se agenda al terminar capacitación: asumimos b8–b9 ya listos para este día
+    # =========================
+    ("Gates", "g5", "G5 CIERRE: checklist ok + activos listos (salida controlada)", "t13", 1),
+
+    ("Soporte + salida", "t14", "T14 Publicación (Go-Live) + verificación", "g5", 1),
 ]
+
 
 
 def default_df() -> pd.DataFrame:
@@ -585,3 +672,4 @@ components.html(html, height=760, scrolling=True)
 
 with st.expander("Ver Mermaid (texto)"):
     st.code(mermaid_txt, language="text")
+
