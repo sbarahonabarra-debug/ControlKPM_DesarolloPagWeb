@@ -525,6 +525,19 @@ def status_flag(status: str) -> str:
     return ""
 
 
+def mermaid_safe_text(text: str) -> str:
+    """
+    Sanitiza texto para Mermaid Gantt.
+    El carácter ':' dentro del nombre rompe la sintaxis porque Mermaid lo usa como separador.
+    """
+    return (
+        str(text)
+        .replace(":", " -")
+        .replace("\n", " ")
+        .strip()
+    )
+
+
 def build_mermaid(df_in: pd.DataFrame, kickoff_iso: str, exclude_weekends: bool) -> str:
     """
     Mermaid propaga cambios usando duración efectiva (base + desviación).
@@ -539,12 +552,13 @@ def build_mermaid(df_in: pd.DataFrame, kickoff_iso: str, exclude_weekends: bool)
     lines.append("")
 
     for fase in df_in["Fase"].unique():
-        lines.append(f"    section {fase}")
+        fase_safe = mermaid_safe_text(fase)
+        lines.append(f"    section {fase_safe}")
         subset = df_in[df_in["Fase"] == fase]
         for _, r in subset.iterrows():
             flag = status_flag(str(r["Estado"]))
             tid = str(r["ID"]).strip()
-            name = str(r["Tarea"]).strip()
+            name = mermaid_safe_text(str(r["Tarea"]).strip())
             dep = str(r["Depende_de"]).strip()
             dur_eff = max(1, int(r["Duración (días hábiles)"]) + int(r.get("Desviación (días hábiles)", 0)))
 
@@ -672,4 +686,3 @@ components.html(html, height=760, scrolling=True)
 
 with st.expander("Ver Mermaid (texto)"):
     st.code(mermaid_txt, language="text")
-
